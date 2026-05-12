@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Search, Wrench, ClipboardList, BookOpen } from "lucide-react";
+import { LayoutDashboard, Search, Wrench, ClipboardList, BookOpen, Calculator } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/analyzer", label: "Listing Analyzer", icon: Search },
   { href: "/fault-finder", label: "Fault Finder", icon: Wrench },
+  { href: "/calculator", label: "ROI Calculator", icon: Calculator },
   { href: "/tracker", label: "Flip Tracker", icon: ClipboardList },
   { href: "/prices", label: "Price Reference", icon: BookOpen },
 ];
@@ -28,15 +29,8 @@ export default function Sidebar() {
         {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
           return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                active
-                  ? "bg-green-500/10 text-green-400 font-medium"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
-              }`}
-            >
+            <Link key={href} href={href}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${active ? "bg-green-500/10 text-green-400 font-medium" : "text-gray-400 hover:text-white hover:bg-gray-800"}`}>
               <Icon size={16} />
               {label}
             </Link>

@@ -3,6 +3,21 @@ import { priceDatabase } from "./priceDatabase";
 export type RiskLevel = "low" | "medium" | "high" | "extreme";
 export type DifficultyLevel = "beginner" | "intermediate" | "advanced" | "expert";
 
+export const PLATFORM_FEES: Record<string, number> = {
+  "eBay": 0.128,         // 12.8% managed payments fee
+  "Vinted": 0.05,        // 5% + buyer protection (absorbed by buyer, but affects perception)
+  "Facebook Marketplace": 0,
+  "CEX": 0,
+};
+
+export interface PlatformProfit {
+  platform: string;
+  grossSell: number;
+  fee: number;
+  netProfit: number;
+  netRoi: number;
+}
+
 export interface FlipAnalysis {
   deviceType: string;
   model: string;
@@ -23,15 +38,19 @@ export interface FlipAnalysis {
   profitMin: number;
   profitMax: number;
   profitEstimate: number;
+  profitAfterFees: number;
   roiMin: number;
   roiMax: number;
   roiEstimate: number;
+  roiAfterFees: number;
+  platformBreakdown: PlatformProfit[];
   worstCaseLoss: number;
   difficulty: DifficultyLevel;
   risk: RiskLevel;
   flipScore: number;
   recommendedAction: "BUY" | "NEGOTIATE" | "AVOID" | "WATCH";
   flags: string[];
+  scamFlags: string[];
   repairNotes: string;
   demand: string;
 }
@@ -67,15 +86,30 @@ const faultMappings: Record<string, { repairMin: number; repairMax: number; diff
   "keyboard": { repairMin: 10, repairMax: 80, difficulty: "intermediate", risk: "medium", notes: "Key replacement or full keyboard swap. Check butterfly vs scissor model." },
 };
 
-function detectFault(description: string): { repairMin: number; repairMax: number; difficulty: DifficultyLevel; risk: RiskLevel; notes: string } {
+function detectFault(description: string) {
   const lower = description.toLowerCase();
   for (const [keyword, data] of Object.entries(faultMappings)) {
     if (lower.includes(keyword)) return data;
   }
-  return { repairMin: 15, repairMax: 60, difficulty: "intermediate", risk: "medium", notes: "Unknown fault. Inspect before committing to repair." };
+  return { repairMin: 15, repairMax: 60, difficulty: "intermediate" as DifficultyLevel, risk: "medium" as RiskLevel, notes: "Unknown fault. Inspect before committing to repair." };
 }
 
-function findBestPrice(deviceQuery: string): { cexCash: number; cexVoucher: number; ebayAvg: number; fbAvg: number; demand: string } | null {
+function detectScamFlags(description: string, buyPrice: number, marketPrice: number): string[] {
+  const flags: string[] = [];
+  const lower = description.toLowerCase();
+  if (lower.includes("no returns") && lower.includes("untested")) flags.push("No returns + untested — zero recourse if it's junk");
+  if (lower.includes("sold as seen") || lower.includes("as is")) flags.push("'Sold as seen' — no recourse if faulty beyond description");
+  if (lower.includes("can't test") || lower.includes("cannot test") || lower.includes("no way to test")) flags.push("Seller claims they can't test it — suspicious, demand photos of power on");
+  if (lower.includes("collection only") && buyPrice < 30) flags.push("Collection only + very cheap — verify it works before handing over cash");
+  if (lower.includes("urgent") || lower.includes("moving") || lower.includes("quick sale")) flags.push("'Urgent sale' pressure — common in scam listings, don't rush");
+  if (marketPrice > 0 && buyPrice < marketPrice * 0.3) flags.push(`Price ${Math.round((buyPrice / marketPrice) * 100)}% of market value — suspiciously cheap, may be stolen or worse than described`);
+  if (lower.includes("no box") && lower.includes("no charger") && lower.includes("no accessories")) flags.push("No accessories at all — stripped item, check IMEI/serial not blocked");
+  if (lower.includes("icloud") || lower.includes("find my") || lower.includes("activation lock")) flags.push("iCloud / Activation Lock mentioned — DO NOT BUY unless you can verify it's unlocked");
+  if (lower.includes("network locked") || lower.includes("carrier locked")) flags.push("Network locked device — check unlock cost before buying");
+  return flags;
+}
+
+function findBestPrice(deviceQuery: string) {
   const q = deviceQuery.toLowerCase();
   const entry = priceDatabase.find(p =>
     p.device.toLowerCase().includes(q) ||
@@ -102,6 +136,20 @@ function calcFlipScore(profit: number, roi: number, risk: RiskLevel, difficulty:
   return Math.max(1, Math.min(10, score));
 }
 
+export function calcRequiredSellPrice(buyPrice: number, repairCost: number, targetRoi: number, platform: string): number {
+  const fee = PLATFORM_FEES[platform] ?? 0;
+  const total = buyPrice + repairCost;
+  const requiredNet = total * (1 + targetRoi / 100);
+  return Math.ceil(requiredNet / (1 - fee));
+}
+
+export function calcRoiFromSellPrice(buyPrice: number, repairCost: number, sellPrice: number, platform: string): number {
+  const fee = PLATFORM_FEES[platform] ?? 0;
+  const total = buyPrice + repairCost;
+  const net = sellPrice * (1 - fee) - total;
+  return total > 0 ? Math.round((net / total) * 100) : 0;
+}
+
 export function analyzeFlip(
   deviceType: string,
   model: string,
@@ -122,8 +170,19 @@ export function analyzeFlip(
   const ebayAvg = prices?.ebayAvg ?? 0;
   const fbAvg = prices?.fbAvg ?? 0;
 
-  const bestSell = Math.max(cexCash, ebayAvg, fbAvg);
-  const bestPlatform = bestSell === ebayAvg ? "eBay" : bestSell === fbAvg ? "Facebook Marketplace" : "CEX";
+  // Platform breakdown with fees
+  const platformBreakdown: PlatformProfit[] = [
+    { platform: "eBay", grossSell: ebayAvg, fee: Math.round(ebayAvg * PLATFORM_FEES["eBay"]), netProfit: Math.round(ebayAvg * (1 - PLATFORM_FEES["eBay"]) - totalEst), netRoi: totalEst > 0 ? Math.round(((ebayAvg * (1 - PLATFORM_FEES["eBay"]) - totalEst) / totalEst) * 100) : 0 },
+    { platform: "Facebook Marketplace", grossSell: fbAvg, fee: 0, netProfit: fbAvg - totalEst, netRoi: totalEst > 0 ? Math.round(((fbAvg - totalEst) / totalEst) * 100) : 0 },
+    { platform: "CEX Cash", grossSell: cexCash, fee: 0, netProfit: cexCash - totalEst, netRoi: totalEst > 0 ? Math.round(((cexCash - totalEst) / totalEst) * 100) : 0 },
+    { platform: "CEX Voucher", grossSell: cexVoucher, fee: 0, netProfit: cexVoucher - totalEst, netRoi: totalEst > 0 ? Math.round(((cexVoucher - totalEst) / totalEst) * 100) : 0 },
+  ].filter(p => p.grossSell > 0).sort((a, b) => b.netProfit - a.netProfit);
+
+  const bestPlatformEntry = platformBreakdown[0];
+  const bestSell = bestPlatformEntry?.grossSell ?? 0;
+  const bestPlatform = bestPlatformEntry?.platform ?? "Unknown";
+  const profitAfterFees = bestPlatformEntry?.netProfit ?? 0;
+  const roiAfterFees = bestPlatformEntry?.netRoi ?? 0;
 
   const profitMin = bestSell - totalMax;
   const profitMax = bestSell - totalMin;
@@ -133,22 +192,23 @@ export function analyzeFlip(
   const roiMax = totalMin > 0 ? Math.round((profitMax / totalMin) * 100) : 0;
   const roiEst = totalEst > 0 ? Math.round((profitEst / totalEst) * 100) : 0;
 
-  const worstCase = buyPrice + fault.repairMax;
-
-  const flipScore = calcFlipScore(profitEst, roiEst, fault.risk, fault.difficulty);
+  const flipScore = calcFlipScore(profitAfterFees, roiAfterFees, fault.risk, fault.difficulty);
 
   const flags: string[] = [];
-  if (faultDescription.toLowerCase().includes("untested")) flags.push("UNTESTED — hidden faults possible");
   if (fault.risk === "extreme") flags.push("EXTREME RISK — water/liquid damage");
   if (faultDescription.toLowerCase().includes("face id")) flags.push("Face ID broken — unrepairable without Apple");
-  if (profitEst >= 50 && fault.risk === "low") flags.push("HIGH PROFIT + LOW RISK — strong buy");
+  if (profitAfterFees >= 50 && fault.risk === "low") flags.push("HIGH PROFIT + LOW RISK — strong buy");
   if (fault.difficulty === "beginner") flags.push("BEGINNER FRIENDLY repair");
   if (accessories && accessories.toLowerCase().includes("box")) flags.push("Comes with box — adds resale value");
   if (buyPrice < 10) flags.push("VERY CHEAP — worth the risk even if repair fails");
+  if (faultDescription.toLowerCase().includes("untested")) flags.push("UNTESTED — inspect in person before agreeing price");
+
+  const scamFlags = detectScamFlags(faultDescription, buyPrice, bestSell);
 
   let action: FlipAnalysis["recommendedAction"] = "WATCH";
-  if (flipScore >= 7 && fault.risk !== "extreme") action = "BUY";
-  else if (flipScore >= 5 && profitEst > 0) action = "NEGOTIATE";
+  if (scamFlags.some(f => f.includes("iCloud"))) action = "AVOID";
+  else if (flipScore >= 7 && fault.risk !== "extreme") action = "BUY";
+  else if (flipScore >= 5 && profitAfterFees > 0) action = "NEGOTIATE";
   else if (fault.risk === "extreme" || flipScore <= 3) action = "AVOID";
 
   return {
@@ -171,15 +231,19 @@ export function analyzeFlip(
     profitMin,
     profitMax,
     profitEstimate: profitEst,
+    profitAfterFees,
     roiMin,
     roiMax,
     roiEstimate: roiEst,
-    worstCaseLoss: worstCase,
+    roiAfterFees,
+    platformBreakdown,
+    worstCaseLoss: buyPrice + fault.repairMax,
     difficulty: fault.difficulty,
     risk: fault.risk,
     flipScore,
     recommendedAction: action,
     flags,
+    scamFlags,
     repairNotes: fault.notes,
     demand: prices?.demand ?? "unknown",
   };

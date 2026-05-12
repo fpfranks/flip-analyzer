@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { FlipAnalysis } from "@/lib/flipScorer";
-import { Search, Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle, Plus } from "lucide-react";
+import { Search, Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle, Plus, ShieldAlert } from "lucide-react";
 import { saveFlip } from "@/lib/flipTracker";
 
 type Mode = "paste" | "manual";
@@ -45,13 +45,12 @@ export default function AnalyzerPage() {
       const body = mode === "paste"
         ? { listingText }
         : { manualInput: { ...manual, buyPrice: parseFloat(manual.buyPrice) || 0 } };
-
       const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (data.error) { setError(data.error); return; }
       setResult(data);
     } catch {
-      setError("Something went wrong. Check your API key is set.");
+      setError("Something went wrong. Check your API key is set in .env.local.");
     } finally {
       setLoading(false);
     }
@@ -75,17 +74,13 @@ export default function AnalyzerPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Listing Analyzer</h1>
-        <p className="text-gray-400 text-sm mt-1">Paste a listing or fill in the details — get instant flip analysis</p>
+        <p className="text-gray-400 text-sm mt-1">Paste a listing or fill in the details — get instant flip analysis with platform fees</p>
       </div>
 
-      {/* Mode toggle */}
       <div className="flex gap-2">
         {(["paste", "manual"] as Mode[]).map(m => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === m ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}
-          >
+          <button key={m} onClick={() => setMode(m)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === m ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
             {m === "paste" ? "Paste Listing" : "Manual Entry"}
           </button>
         ))}
@@ -101,13 +96,13 @@ export default function AnalyzerPage() {
             rows={6}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none"
           />
-          <p className="text-xs text-gray-500">Paste from Facebook Marketplace, eBay, Gumtree, Vinted — AI will extract all the details automatically</p>
+          <p className="text-xs text-gray-500">Paste from Facebook Marketplace, eBay, Gumtree, Vinted — AI extracts device, fault, and price automatically</p>
         </div>
       ) : (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 grid grid-cols-2 gap-4">
           <Field label="Device Type" placeholder="e.g. Nintendo Switch" value={manual.deviceType} onChange={v => setManual(p => ({ ...p, deviceType: v }))} />
           <Field label="Model" placeholder="e.g. Switch OLED" value={manual.model} onChange={v => setManual(p => ({ ...p, model: v }))} />
-          <Field label="Fault Description" placeholder="e.g. stick drift, cracked screen" value={manual.fault} onChange={v => setManual(p => ({ ...p, fault: v }))} span />
+          <Field label="Fault / Condition" placeholder="e.g. stick drift, cracked screen" value={manual.fault} onChange={v => setManual(p => ({ ...p, fault: v }))} span />
           <Field label="Buy Price (£)" placeholder="e.g. 80" value={manual.buyPrice} onChange={v => setManual(p => ({ ...p, buyPrice: v }))} type="number" />
           <Field label="Accessories" placeholder="e.g. box, dock, cables" value={manual.accessories} onChange={v => setManual(p => ({ ...p, accessories: v }))} />
         </div>
@@ -137,13 +132,8 @@ function Field({ label, placeholder, value, onChange, span, type }: { label: str
   return (
     <div className={span ? "col-span-2" : ""}>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
-      <input
-        type={type || "text"}
-        placeholder={placeholder}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500"
-      />
+      <input type={type || "text"} placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)}
+        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500" />
     </div>
   );
 }
@@ -154,6 +144,20 @@ function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAna
 
   return (
     <div className="space-y-4">
+      {/* Scam alerts — shown first if present */}
+      {analysis.scamFlags.length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
+            <ShieldAlert size={16} /> Scam / Risk Alerts
+          </div>
+          {analysis.scamFlags.map((flag, i) => (
+            <div key={i} className="flex items-start gap-2 text-sm text-red-300">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {flag}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
         <div className="flex items-start justify-between">
@@ -161,45 +165,49 @@ function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAna
             <div className="text-lg font-bold text-white">{analysis.deviceType} {analysis.model}</div>
             <div className="text-sm text-gray-400 mt-0.5">{analysis.faultDescription}</div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${actionConfig[analysis.recommendedAction].color}`}>
-              <ActionIcon size={14} />
-              {analysis.recommendedAction}
-            </div>
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${actionConfig[analysis.recommendedAction].color}`}>
+            <ActionIcon size={14} /> {analysis.recommendedAction}
           </div>
         </div>
-
-        {/* Flip Score */}
         <div className="mt-4 flex items-center gap-3">
           <div className="text-sm text-gray-400">Flip Score</div>
           <div className="flex gap-1">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-5 h-2 rounded-sm ${i < analysis.flipScore ? (analysis.flipScore >= 7 ? "bg-green-500" : analysis.flipScore >= 5 ? "bg-yellow-500" : "bg-red-500") : "bg-gray-700"}`}
-              />
+              <div key={i} className={`w-5 h-2 rounded-sm ${i < analysis.flipScore ? (analysis.flipScore >= 7 ? "bg-green-500" : analysis.flipScore >= 5 ? "bg-yellow-500" : "bg-red-500") : "bg-gray-700"}`} />
             ))}
           </div>
           <div className="text-sm font-bold text-white">{analysis.flipScore}/10</div>
         </div>
       </div>
 
-      {/* Numbers */}
+      {/* Key numbers */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <NumberCard label="Buy Price" value={`£${analysis.buyPrice}`} sub="asking price" />
         <NumberCard label="Repair Cost" value={`£${analysis.repairCostMin}-${analysis.repairCostMax}`} sub={`~£${analysis.repairCostEstimate} est.`} />
-        <NumberCard label="Best Sell Price" value={`£${analysis.bestSellPrice}`} sub={analysis.bestPlatform} highlight />
-        <NumberCard label="Est. Profit" value={`£${analysis.profitEstimate}`} sub={`ROI: ${analysis.roiEstimate}%`} highlight profit={analysis.profitEstimate} />
+        <NumberCard label="Profit (after fees)" value={`£${analysis.profitAfterFees}`} sub={`${analysis.roiAfterFees}% ROI`} profit={analysis.profitAfterFees} />
+        <NumberCard label="Best Platform" value={analysis.bestPlatform.split(" ")[0]} sub={`£${analysis.bestSellPrice} sell price`} highlight />
       </div>
 
-      {/* Platform prices */}
+      {/* Platform breakdown */}
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-white mb-3">Market Prices (Working Condition)</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <PriceBox label="CEX Cash" value={analysis.cexCash} />
-          <PriceBox label="CEX Voucher" value={analysis.cexVoucher} />
-          <PriceBox label="eBay Avg" value={analysis.ebayAvg} />
-          <PriceBox label="Facebook MP" value={analysis.fbAvg} />
+        <h3 className="text-sm font-semibold text-white mb-3">Platform Breakdown (fees included)</h3>
+        <div className="space-y-2">
+          {analysis.platformBreakdown.map((p, i) => (
+            <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 ${i === 0 ? "bg-green-500/10 border border-green-500/20" : "bg-gray-800"}`}>
+              <div className="flex items-center gap-2">
+                {i === 0 && <span className="text-xs text-green-400 font-medium">BEST</span>}
+                <span className="text-sm text-white">{p.platform}</span>
+                {p.fee > 0 && <span className="text-xs text-gray-500">-£{p.fee} fee</span>}
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-400">Sell: £{p.grossSell}</span>
+                <span className={`text-sm font-bold ${p.netProfit >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {p.netProfit >= 0 ? "+" : ""}£{p.netProfit}
+                </span>
+                <span className={`text-xs ${p.netRoi >= 0 ? "text-green-400" : "text-red-400"}`}>{p.netRoi}% ROI</span>
+              </div>
+            </div>
+          ))}
         </div>
         <div className="mt-3 flex items-center gap-2">
           <span className="text-xs text-gray-400">Demand:</span>
@@ -225,13 +233,15 @@ function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAna
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <div className="text-xs text-gray-400 mb-1">Repair Notes</div>
         <div className="text-sm text-gray-200">{analysis.repairNotes}</div>
-        <div className="mt-2 text-xs text-gray-400">Worst case total investment: <span className="text-orange-400 font-medium">£{analysis.worstCaseLoss}</span></div>
+        <div className="mt-2 text-xs text-gray-400">
+          Worst case total investment: <span className="text-orange-400 font-medium">£{analysis.worstCaseLoss}</span>
+        </div>
       </div>
 
-      {/* Flags */}
+      {/* Info flags */}
       {analysis.flags.length > 0 && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-2">
-          <div className="text-xs text-gray-400 mb-1">Flags</div>
+          <div className="text-xs text-gray-400 mb-1">Notes</div>
           {analysis.flags.map((flag, i) => (
             <div key={i} className="flex items-center gap-2 text-sm">
               <AlertTriangle size={12} className="text-yellow-400 shrink-0" />
@@ -241,7 +251,6 @@ function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAna
         </div>
       )}
 
-      {/* Save button */}
       <button
         onClick={onSave}
         disabled={saved}
@@ -262,15 +271,6 @@ function NumberCard({ label, value, sub, highlight, profit }: { label: string; v
       <div className="text-xs text-gray-400 mb-1">{label}</div>
       <div className={`text-lg font-bold ${profitColor}`}>{value}</div>
       <div className="text-xs text-gray-500 mt-0.5">{sub}</div>
-    </div>
-  );
-}
-
-function PriceBox({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-gray-800 rounded-lg p-3">
-      <div className="text-xs text-gray-400 mb-1">{label}</div>
-      <div className="text-base font-bold text-white">{value > 0 ? `£${value}` : "N/A"}</div>
     </div>
   );
 }
