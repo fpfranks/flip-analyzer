@@ -260,25 +260,18 @@ function AnalysisResult({ analysis, onSave, saved }: { analysis: FlipAnalysis; o
         <NumBox label="Worst Case Loss" value={`£${analysis.worstCaseLoss}`} sub="total invested" warn />
       </div>
 
-      {/* Platform breakdown */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-2">
-        <div className="text-xs font-medium text-gray-400 mb-1">By Platform (after fees)</div>
-        {analysis.platformBreakdown.map((p, i) => (
-          <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 ${i === 0 ? "bg-green-500/10 border border-green-500/20" : "bg-gray-800"}`}>
-            <div className="flex items-center gap-2">
-              {i === 0 && <span className="text-xs text-green-400 font-bold">★</span>}
-              <span className="text-xs text-white">{p.platform}</span>
-              {p.fee > 0 && <span className="text-xs text-gray-500">-£{p.fee}</span>}
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">£{p.grossSell}</span>
-              <span className={`text-sm font-bold ${p.netProfit >= 0 ? "text-green-400" : "text-red-400"}`}>
-                {p.netProfit >= 0 ? "+" : ""}£{p.netProfit}
-              </span>
-              <span className={`text-xs w-14 text-right ${p.netRoi >= 0 ? "text-green-400" : "text-red-400"}`}>{p.netRoi}% ROI</span>
-            </div>
-          </div>
-        ))}
+      {/* Platform links */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+        <div className="text-xs font-medium text-gray-400 mb-3">Check Live Prices</div>
+        <div className="space-y-2">
+          {getPlatformLinks(analysis.deviceType, analysis.model).map(link => (
+            <a key={link.label} href={link.url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-between rounded-lg px-3 py-2 bg-gray-800 hover:bg-gray-700 transition-colors group">
+              <span className={`text-sm font-medium ${link.color}`}>{link.label}</span>
+              <span className="text-xs text-gray-500 group-hover:text-gray-300 transition-colors">{link.hint}</span>
+            </a>
+          ))}
+        </div>
       </div>
 
       {/* Risk / difficulty / demand row */}
@@ -322,6 +315,17 @@ function AnalysisResult({ analysis, onSave, saved }: { analysis: FlipAnalysis; o
       </button>
     </>
   );
+}
+
+function getPlatformLinks(device: string, model: string) {
+  const q = encodeURIComponent(`${device} ${model}`.trim());
+  return [
+    { label: "CEX", hint: "Trade-in & buy prices", color: "text-orange-400", url: `https://uk.webuy.com/search?q=${q}` },
+    { label: "eBay — Sold Listings", hint: "Most accurate real sell prices", color: "text-yellow-400", url: `https://www.ebay.co.uk/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1` },
+    { label: "Facebook Marketplace", hint: "Local buyers, no fees", color: "text-blue-400", url: `https://www.facebook.com/marketplace/search/?query=${q}` },
+    { label: "Vinted", hint: "Good for accessories & controllers", color: "text-teal-400", url: `https://www.vinted.co.uk/catalog?search_text=${q}` },
+    { label: "Gumtree", hint: "Local cash sales", color: "text-green-400", url: `https://www.gumtree.com/search?search_category=all&q=${q}` },
+  ];
 }
 
 function NumBox({ label, value, sub, profit, warn }: { label: string; value: string; sub: string; profit?: number; warn?: boolean }) {

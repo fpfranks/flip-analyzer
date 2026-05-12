@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { priceDatabase } from "@/lib/priceDatabase";
+import { ExternalLink } from "lucide-react";
 
 const deviceCategories = [...new Set(priceDatabase.map(p => p.device))];
 
@@ -10,6 +11,18 @@ const demandColors: Record<string, string> = {
   "medium": "text-yellow-400 bg-yellow-500/10",
   "low": "text-gray-400 bg-gray-700",
 };
+
+function enc(q: string) { return encodeURIComponent(q); }
+
+function searchLinks(model: string) {
+  return [
+    { label: "CEX", url: `https://uk.webuy.com/search?q=${enc(model)}`, color: "text-orange-400 hover:text-orange-300" },
+    { label: "eBay Sold", url: `https://www.ebay.co.uk/sch/i.html?_nkw=${enc(model)}&LH_Sold=1&LH_Complete=1&LH_PrefLoc=1`, color: "text-yellow-400 hover:text-yellow-300" },
+    { label: "Facebook", url: `https://www.facebook.com/marketplace/search/?query=${enc(model)}`, color: "text-blue-400 hover:text-blue-300" },
+    { label: "Vinted", url: `https://www.vinted.co.uk/catalog?search_text=${enc(model)}`, color: "text-teal-400 hover:text-teal-300" },
+    { label: "Gumtree", url: `https://www.gumtree.com/search?search_category=all&q=${enc(model)}`, color: "text-green-400 hover:text-green-300" },
+  ];
+}
 
 export default function PricesPage() {
   const [search, setSearch] = useState("");
@@ -25,10 +38,9 @@ export default function PricesPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-white">Price Reference</h1>
-        <p className="text-gray-400 text-sm mt-1">CEX and eBay prices for working devices — use as your resale target</p>
+        <p className="text-gray-400 text-sm mt-1">Quick links to check live prices on every platform</p>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <input
           type="text"
@@ -39,29 +51,22 @@ export default function PricesPage() {
         />
         <div className="flex flex-wrap gap-1.5">
           {["All", ...deviceCategories].map(cat => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${category === cat ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}
-            >
+            <button key={cat} onClick={() => setCategory(cat)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${category === cat ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
               {cat}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Device / Model</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">CEX Cash</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">CEX Voucher</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">eBay Avg</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-400">Facebook MP</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-400">Demand</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Check Prices</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
@@ -71,20 +76,18 @@ export default function PricesPage() {
                     <div className="font-medium text-white">{p.model}</div>
                     <div className="text-xs text-gray-500">{p.device}</div>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-green-400 font-medium">£{p.cexCash}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-blue-400 font-medium">£{p.cexVoucher}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-white font-medium">£{p.ebayAvg}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-gray-300">£{p.fbAvg}</span>
-                  </td>
                   <td className="px-4 py-3 text-center">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${demandColors[p.demand]}`}>{p.demand}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {searchLinks(p.model).map(link => (
+                        <a key={link.label} href={link.url} target="_blank" rel="noopener noreferrer"
+                          className={`flex items-center gap-1 text-xs font-medium transition-colors ${link.color}`}>
+                          {link.label} <ExternalLink size={10} />
+                        </a>
+                      ))}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -94,11 +97,6 @@ export default function PricesPage() {
             <div className="p-8 text-center text-gray-500 text-sm">No results found</div>
           )}
         </div>
-      </div>
-
-      {/* Note */}
-      <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-4 text-xs text-yellow-300">
-        <strong>Note:</strong> Prices are approximate UK market averages for working/good condition devices. Always verify on eBay &quot;Sold Listings&quot; and live CEX before buying. Prices fluctuate with stock and season.
       </div>
     </div>
   );
