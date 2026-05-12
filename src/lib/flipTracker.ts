@@ -23,6 +23,7 @@ export interface TrackedFlip {
   model: string;
   fault: string;
   buyPrice: number;
+  deliveryCost: number;
   repairCost: number;
   actualRepairCost?: number;
   sellPrice?: number;
@@ -47,6 +48,7 @@ export function getFlips(): TrackedFlip[] {
     // migrate old entries that lack repairLog/parts
     return raw.map((f: TrackedFlip) => ({
       ...f,
+      deliveryCost: f.deliveryCost ?? 0,
       repairLog: f.repairLog ?? [],
       parts: f.parts ?? [],
     }));
@@ -78,7 +80,7 @@ export function updateFlip(id: string, updates: Partial<TrackedFlip>): void {
   if (updates.sellPrice !== undefined && updates.status === "sold") {
     const partsCost = flips[idx].parts.filter(p => p.status === "used").reduce((s, p) => s + p.cost, 0);
     const totalRepair = flips[idx].actualRepairCost ?? flips[idx].repairCost + partsCost;
-    const total = flips[idx].buyPrice + totalRepair;
+    const total = flips[idx].buyPrice + (flips[idx].deliveryCost ?? 0) + totalRepair;
     flips[idx].profit = Math.round((updates.sellPrice - total) * 100) / 100;
     flips[idx].roi = total > 0 ? Math.round((flips[idx].profit! / total) * 100) : 0;
     flips[idx].soldAt = new Date().toISOString();
@@ -143,7 +145,7 @@ export function getStats(flips: TrackedFlip[]) {
   const sold = flips.filter(f => f.status === "sold" && f.profit !== undefined);
   const active = flips.filter(f => f.status !== "sold" && f.status !== "scrapped");
   const totalProfit = sold.reduce((sum, f) => sum + (f.profit ?? 0), 0);
-  const totalInvested = active.reduce((sum, f) => sum + f.buyPrice + f.repairCost, 0);
+  const totalInvested = active.reduce((sum, f) => sum + f.buyPrice + (f.deliveryCost ?? 0) + f.repairCost, 0);
   const avgRoi = sold.length > 0 ? Math.round(sold.reduce((sum, f) => sum + (f.roi ?? 0), 0) / sold.length) : 0;
   const bestFlip = sold.reduce((best, f) => (f.profit ?? 0) > (best?.profit ?? 0) ? f : best, null as TrackedFlip | null);
   return { totalProfit, totalInvested, avgRoi, totalSold: sold.length, activeFlips: active.length, bestFlip };

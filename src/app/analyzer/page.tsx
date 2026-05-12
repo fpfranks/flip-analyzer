@@ -31,7 +31,7 @@ const actionConfig = {
 export default function AnalyzerPage() {
   const [mode, setMode] = useState<Mode>("manual");
   const [listingText, setListingText] = useState("");
-  const [manual, setManual] = useState({ deviceType: "", model: "", fault: "", buyPrice: "", accessories: "" });
+  const [manual, setManual] = useState({ deviceType: "", model: "", fault: "", buyPrice: "", accessories: "", deliveryCost: "0" });
   const [pasteResult, setPasteResult] = useState<{ analysis: FlipAnalysis; extracted: Record<string, string> } | null>(null);
   const [pasteLoading, setPasteLoading] = useState(false);
   const [error, setError] = useState("");
@@ -43,7 +43,8 @@ export default function AnalyzerPage() {
     if (!manual.deviceType.trim() || !manual.buyPrice) return null;
     const price = parseFloat(manual.buyPrice);
     if (!price || price <= 0) return null;
-    return analyzeFlip(manual.deviceType, manual.model, manual.fault || "untested", price, manual.accessories);
+    const delivery = parseFloat(manual.deliveryCost) || 0;
+    return analyzeFlip(manual.deviceType, manual.model, manual.fault || "untested", price, manual.accessories, delivery);
   }, [manual]);
 
   // Paste mode: auto-trigger 800ms after typing stops
@@ -82,6 +83,7 @@ export default function AnalyzerPage() {
       model: analysis.model,
       fault: analysis.faultDescription,
       buyPrice: analysis.buyPrice,
+      deliveryCost: analysis.deliveryCost,
       repairCost: analysis.repairCostEstimate,
       status: "bought",
     });
@@ -130,6 +132,20 @@ export default function AnalyzerPage() {
                 />
                 <Field label="Buy Price (£)" placeholder="e.g. 80" value={manual.buyPrice} type="number"
                   onChange={v => { setManual(p => ({ ...p, buyPrice: v })); setSaved(false); }} />
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Delivery Cost (£)</label>
+                  <input type="number" placeholder="0" value={manual.deliveryCost}
+                    onChange={e => setManual(p => ({ ...p, deliveryCost: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500 mb-1.5" />
+                  <div className="flex gap-1.5 flex-wrap">
+                    {[["Collection", "0"], ["Evri", "3.49"], ["Royal Mail", "3.30"], ["DPD", "6.99"]].map(([label, val]) => (
+                      <button key={label} onClick={() => setManual(p => ({ ...p, deliveryCost: val }))}
+                        className={`px-2 py-0.5 rounded text-xs transition-colors ${manual.deliveryCost === val ? "bg-green-500 text-black" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}>
+                        {label} {val !== "0" ? `£${val}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <Field label="Accessories (optional)" placeholder="e.g. box, dock, cables"
                   value={manual.accessories} onChange={v => setManual(p => ({ ...p, accessories: v }))} />
               </div>
@@ -259,10 +275,10 @@ function AnalysisResult({ analysis, onSave, saved }: { analysis: FlipAnalysis; o
 
       {/* Key numbers */}
       <div className="grid grid-cols-2 gap-2">
-        <NumBox label="Buy Price" value={`£${analysis.buyPrice}`} sub="asking" />
+        <NumBox label="Buy Price" value={`£${analysis.buyPrice}`} sub={analysis.deliveryCost > 0 ? `+£${analysis.deliveryCost} delivery` : "collection / included"} />
         <NumBox label="Est. Repair" value={`£${analysis.repairCostMin}–${analysis.repairCostMax}`} sub={`~£${analysis.repairCostEstimate}`} />
         <NumBox label="Profit After Fees" value={`£${analysis.profitAfterFees}`} sub={`${analysis.roiAfterFees}% ROI`} profit={analysis.profitAfterFees} />
-        <NumBox label="Worst Case Loss" value={`£${analysis.worstCaseLoss}`} sub="total invested" warn />
+        <NumBox label="Total Invested" value={`£${analysis.totalInvestmentEstimate}`} sub="buy + delivery + repair" warn />
       </div>
 
       {/* Platform links */}

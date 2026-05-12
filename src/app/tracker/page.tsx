@@ -38,7 +38,7 @@ export default function TrackerPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FlipStatus | "all">("all");
   const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [form, setForm] = useState({ deviceType: "", model: "", fault: "", buyPrice: "", repairCost: "", status: "bought" as FlipStatus, notes: "" });
+  const [form, setForm] = useState({ deviceType: "", model: "", fault: "", buyPrice: "", deliveryCost: "0", repairCost: "", status: "bought" as FlipStatus, notes: "" });
   const [logInput, setLogInput] = useState<{ [id: string]: { note: string; cost: string } }>({});
   const [partInput, setPartInput] = useState<{ [id: string]: { name: string; supplier: string; cost: string } }>({});
 
@@ -79,8 +79,8 @@ export default function TrackerPage() {
   }, [formAnalysis, form.repairCost]);
 
   function submitForm() {
-    saveFlip({ deviceType: form.deviceType, model: form.model, fault: form.fault, buyPrice: parseFloat(form.buyPrice) || 0, repairCost: parseFloat(form.repairCost) || 0, status: form.status, notes: form.notes });
-    setForm({ deviceType: "", model: "", fault: "", buyPrice: "", repairCost: "", status: "bought", notes: "" });
+    saveFlip({ deviceType: form.deviceType, model: form.model, fault: form.fault, buyPrice: parseFloat(form.buyPrice) || 0, deliveryCost: parseFloat(form.deliveryCost) || 0, repairCost: parseFloat(form.repairCost) || 0, status: form.status, notes: form.notes });
+    setForm({ deviceType: "", model: "", fault: "", buyPrice: "", deliveryCost: "0", repairCost: "", status: "bought", notes: "" });
     setShowForm(false);
     refresh();
   }
@@ -165,6 +165,20 @@ export default function TrackerPage() {
                 deviceFilter={form.deviceType}
               />
               <FormField label="Buy Price (£)" value={form.buyPrice} onChange={v => setForm(p => ({ ...p, buyPrice: v }))} placeholder="0" type="number" />
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Delivery Cost (£)</label>
+                <input type="number" placeholder="0" value={form.deliveryCost}
+                  onChange={e => setForm(p => ({ ...p, deliveryCost: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500 mb-1.5" />
+                <div className="flex gap-1.5 flex-wrap">
+                  {[["Collection", "0"], ["Evri", "3.49"], ["Royal Mail", "3.30"], ["DPD", "6.99"]].map(([label, val]) => (
+                    <button key={label} type="button" onClick={() => setForm(p => ({ ...p, deliveryCost: val }))}
+                      className={`px-2 py-0.5 rounded text-xs transition-colors ${form.deliveryCost === val ? "bg-green-500 text-black" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}>
+                      {label} {val !== "0" ? `£${val}` : ""}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
                   Repair Cost (£)
@@ -348,7 +362,7 @@ function FlipCard({ flip, expanded, onToggle, editSell, onEditSell, onMarkSold, 
   onUpdatePart: (partId: string, updates: Partial<PartOrder>) => void;
   onDeletePart: (partId: string) => void;
 }) {
-  const totalInvested = flip.buyPrice + (flip.actualRepairCost ?? flip.repairCost);
+  const totalInvested = flip.buyPrice + (flip.deliveryCost ?? 0) + (flip.actualRepairCost ?? flip.repairCost);
   const pendingParts = flip.parts.filter(p => p.status === "ordered").length;
 
   return (
@@ -373,6 +387,7 @@ function FlipCard({ flip, expanded, onToggle, editSell, onEditSell, onMarkSold, 
 
           <div className="flex items-center gap-4 mt-2 flex-wrap">
             <div className="text-xs text-gray-400">Bought: <span className="text-white font-medium">£{flip.buyPrice}</span></div>
+            {(flip.deliveryCost ?? 0) > 0 && <div className="text-xs text-gray-400">Delivery: <span className="text-white font-medium">£{flip.deliveryCost}</span></div>}
             <div className="text-xs text-gray-400">Repair: <span className="text-white font-medium">£{flip.actualRepairCost ?? flip.repairCost}</span></div>
             <div className="text-xs text-gray-400">Total: <span className="text-white font-medium">£{totalInvested}</span></div>
             {flip.profit !== undefined && (

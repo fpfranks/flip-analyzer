@@ -23,6 +23,7 @@ export interface FlipAnalysis {
   model: string;
   faultDescription: string;
   buyPrice: number;
+  deliveryCost: number;
   repairCostMin: number;
   repairCostMax: number;
   repairCostEstimate: number;
@@ -136,16 +137,16 @@ function calcFlipScore(profit: number, roi: number, risk: RiskLevel, difficulty:
   return Math.max(1, Math.min(10, score));
 }
 
-export function calcRequiredSellPrice(buyPrice: number, repairCost: number, targetRoi: number, platform: string): number {
+export function calcRequiredSellPrice(buyPrice: number, repairCost: number, deliveryCost: number, targetRoi: number, platform: string): number {
   const fee = PLATFORM_FEES[platform] ?? 0;
-  const total = buyPrice + repairCost;
+  const total = buyPrice + repairCost + deliveryCost;
   const requiredNet = total * (1 + targetRoi / 100);
   return Math.ceil(requiredNet / (1 - fee));
 }
 
-export function calcRoiFromSellPrice(buyPrice: number, repairCost: number, sellPrice: number, platform: string): number {
+export function calcRoiFromSellPrice(buyPrice: number, repairCost: number, deliveryCost: number, sellPrice: number, platform: string): number {
   const fee = PLATFORM_FEES[platform] ?? 0;
-  const total = buyPrice + repairCost;
+  const total = buyPrice + repairCost + deliveryCost;
   const net = sellPrice * (1 - fee) - total;
   return total > 0 ? Math.round((net / total) * 100) : 0;
 }
@@ -155,15 +156,16 @@ export function analyzeFlip(
   model: string,
   faultDescription: string,
   buyPrice: number,
-  accessories?: string
+  accessories?: string,
+  deliveryCost = 0
 ): FlipAnalysis {
   const fault = detectFault(faultDescription);
   const prices = findBestPrice(`${deviceType} ${model}`);
 
   const repairMid = Math.round((fault.repairMin + fault.repairMax) / 2);
-  const totalMin = buyPrice + fault.repairMin;
-  const totalMax = buyPrice + fault.repairMax;
-  const totalEst = buyPrice + repairMid;
+  const totalMin = buyPrice + fault.repairMin + deliveryCost;
+  const totalMax = buyPrice + fault.repairMax + deliveryCost;
+  const totalEst = buyPrice + repairMid + deliveryCost;
 
   const cexCash = prices?.cexCash ?? 0;
   const cexVoucher = prices?.cexVoucher ?? 0;
@@ -216,6 +218,7 @@ export function analyzeFlip(
     model,
     faultDescription,
     buyPrice,
+    deliveryCost,
     repairCostMin: fault.repairMin,
     repairCostMax: fault.repairMax,
     repairCostEstimate: repairMid,

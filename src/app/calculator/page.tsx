@@ -11,6 +11,7 @@ export default function CalculatorPage() {
   const [mode, setMode] = useState<Mode>("target-roi");
   const [buyPrice, setBuyPrice] = useState("");
   const [repairCost, setRepairCost] = useState("");
+  const [deliveryCost, setDeliveryCost] = useState("0");
   const [platform, setPlatform] = useState("eBay");
   const [targetRoi, setTargetRoi] = useState("50");
   const [sellPrice, setSellPrice] = useState("");
@@ -18,24 +19,25 @@ export default function CalculatorPage() {
   const result = useMemo(() => {
     const buy = parseFloat(buyPrice) || 0;
     const repair = parseFloat(repairCost) || 0;
-    const total = buy + repair;
+    const delivery = parseFloat(deliveryCost) || 0;
+    const total = buy + repair + delivery;
     if (total <= 0) return null;
 
     if (mode === "target-roi") {
       const roi = parseFloat(targetRoi) || 0;
-      const required = calcRequiredSellPrice(buy, repair, roi, platform);
+      const required = calcRequiredSellPrice(buy, repair, delivery, roi, platform);
       const fee = PLATFORM_FEES[platform] ?? 0;
       const netProfit = required * (1 - fee) - total;
       return { required, netProfit: Math.round(netProfit), total, fee: Math.round(required * fee) };
     } else {
       const sell = parseFloat(sellPrice) || 0;
       if (sell <= 0) return null;
-      const roi = calcRoiFromSellPrice(buy, repair, sell, platform);
+      const roi = calcRoiFromSellPrice(buy, repair, delivery, sell, platform);
       const fee = PLATFORM_FEES[platform] ?? 0;
       const netProfit = sell * (1 - fee) - total;
       return { roi, netProfit: Math.round(netProfit * 100) / 100, total, fee: Math.round(sell * fee) };
     }
-  }, [buyPrice, repairCost, platform, targetRoi, sellPrice, mode]);
+  }, [buyPrice, repairCost, deliveryCost, platform, targetRoi, sellPrice, mode]);
 
   const presets = [
     { label: "Joy-Con Drift", buy: 20, repair: 5 },
@@ -88,6 +90,19 @@ export default function CalculatorPage() {
         <div className="grid grid-cols-2 gap-4">
           <CalcField label="Buy Price (£)" value={buyPrice} onChange={setBuyPrice} placeholder="e.g. 80" />
           <CalcField label="Repair Cost (£)" value={repairCost} onChange={setRepairCost} placeholder="e.g. 5" />
+          <div className="col-span-2">
+            <label className="block text-xs text-gray-400 mb-1">Delivery Cost (£) — cost to receive the item</label>
+            <input type="number" placeholder="0" value={deliveryCost} onChange={e => setDeliveryCost(e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500 mb-1.5" />
+            <div className="flex gap-1.5 flex-wrap">
+              {[["Collection", "0"], ["Evri", "3.49"], ["Royal Mail", "3.30"], ["DPD", "6.99"], ["Large item", "8.99"]].map(([label, val]) => (
+                <button key={label} onClick={() => setDeliveryCost(val)}
+                  className={`px-2 py-0.5 rounded text-xs transition-colors ${deliveryCost === val ? "bg-green-500 text-black" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}>
+                  {label} {val !== "0" ? `£${val}` : ""}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div>
@@ -157,11 +172,14 @@ export default function CalculatorPage() {
           </div>
 
           {/* Break-even info */}
-          <div className="mt-3 pt-3 border-t border-gray-800">
+          <div className="mt-3 pt-3 border-t border-gray-800 flex items-center justify-between">
             <div className="text-xs text-gray-400">
-              Break-even sell price ({platform}): <span className="text-white font-medium">
+              Break-even ({platform}): <span className="text-white font-medium">
                 £{Math.ceil(result.total / (1 - (PLATFORM_FEES[platform] ?? 0)))}
               </span>
+            </div>
+            <div className="text-xs text-gray-500">
+              Total invested: <span className="text-white">£{result.total}</span>
             </div>
           </div>
         </div>
