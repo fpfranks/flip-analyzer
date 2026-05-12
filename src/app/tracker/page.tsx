@@ -7,6 +7,7 @@ import {
 } from "@/lib/flipTracker";
 import { analyzeFlip } from "@/lib/flipScorer";
 import { Plus, Trash2, Edit3, Check, X, ChevronDown, ChevronUp, Download, Search, Wrench, Package, Zap } from "lucide-react";
+import FaultSuggestInput from "@/components/FaultSuggestInput";
 
 const statuses: FlipStatus[] = ["watching", "bought", "repairing", "listed", "sold", "scrapped"];
 const partStatuses: PartOrder["status"][] = ["ordered", "arrived", "used", "returned"];
@@ -154,10 +155,15 @@ export default function TrackerPage() {
                 <Zap size={11} /> Live estimate
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 relative">
               <FormField label="Device Type" value={form.deviceType} onChange={v => setForm(p => ({ ...p, deviceType: v, repairCost: "" }))} placeholder="e.g. Nintendo Switch" />
               <FormField label="Model" value={form.model} onChange={v => setForm(p => ({ ...p, model: v }))} placeholder="e.g. OLED" />
-              <FormField label="Fault" value={form.fault} onChange={v => setForm(p => ({ ...p, fault: v, repairCost: "" }))} placeholder="e.g. stick drift" span />
+              <FaultSuggestInput
+                label="Fault / Symptom"
+                value={form.fault}
+                onChange={v => setForm(p => ({ ...p, fault: v, repairCost: "" }))}
+                deviceFilter={form.deviceType}
+              />
               <FormField label="Buy Price (£)" value={form.buyPrice} onChange={v => setForm(p => ({ ...p, buyPrice: v }))} placeholder="0" type="number" />
               <div>
                 <label className="block text-xs text-gray-400 mb-1">

@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { FlipAnalysis, analyzeFlip } from "@/lib/flipScorer";
 import { Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle, Plus, ShieldAlert, Zap } from "lucide-react";
 import { saveFlip } from "@/lib/flipTracker";
+import FaultSuggestInput from "@/components/FaultSuggestInput";
 
 type Mode = "paste" | "manual";
 
@@ -116,13 +117,17 @@ export default function AnalyzerPage() {
                 <Zap size={14} className="text-green-400" />
                 <span className="text-xs text-green-400 font-medium">Live — updates as you type</span>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 relative">
                 <Field label="Device Type" placeholder="e.g. Nintendo Switch" value={manual.deviceType}
                   onChange={v => { setManual(p => ({ ...p, deviceType: v })); setSaved(false); }} />
                 <Field label="Model" placeholder="e.g. Switch OLED" value={manual.model}
                   onChange={v => setManual(p => ({ ...p, model: v }))} />
-                <Field label="Fault / Condition" placeholder="e.g. stick drift, cracked screen, no power"
-                  value={manual.fault} onChange={v => setManual(p => ({ ...p, fault: v }))} span />
+                <FaultSuggestInput
+                  label="Fault / Symptom"
+                  value={manual.fault}
+                  onChange={v => setManual(p => ({ ...p, fault: v }))}
+                  deviceFilter={manual.deviceType}
+                />
                 <Field label="Buy Price (£)" placeholder="e.g. 80" value={manual.buyPrice} type="number"
                   onChange={v => { setManual(p => ({ ...p, buyPrice: v })); setSaved(false); }} />
                 <Field label="Accessories (optional)" placeholder="e.g. box, dock, cables"
