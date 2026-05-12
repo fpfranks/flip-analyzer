@@ -5,7 +5,8 @@ import {
   addRepairLog, deleteRepairLog, addPart, updatePart, deletePart,
   exportToCsv, TrackedFlip, FlipStatus, PartOrder
 } from "@/lib/flipTracker";
-import { Plus, Trash2, Edit3, Check, X, ChevronDown, ChevronUp, Download, Search, Wrench, Package } from "lucide-react";
+import { analyzeFlip } from "@/lib/flipScorer";
+import { Plus, Trash2, Edit3, Check, X, ChevronDown, ChevronUp, Download, Search, Wrench, Package, Zap } from "lucide-react";
 
 const statuses: FlipStatus[] = ["watching", "bought", "repairing", "listed", "sold", "scrapped"];
 const partStatuses: PartOrder["status"][] = ["ordered", "arrived", "used", "returned"];
@@ -60,6 +61,21 @@ export default function TrackerPage() {
   }, [flips, filterStatus, searchQuery, sortKey]);
 
   const stats = getStats(flips);
+
+  // Live analysis of the add-flip form — auto-fills repair cost and previews the deal
+  const formAnalysis = useMemo(() => {
+    if (!form.deviceType.trim() || !form.buyPrice) return null;
+    const price = parseFloat(form.buyPrice);
+    if (!price || price <= 0) return null;
+    return analyzeFlip(form.deviceType, form.model, form.fault || "untested", price);
+  }, [form.deviceType, form.model, form.fault, form.buyPrice]);
+
+  // Auto-fill repair cost from analysis when user hasn't typed one yet
+  useEffect(() => {
+    if (formAnalysis && !form.repairCost) {
+      setForm(p => ({ ...p, repairCost: formAnalysis.repairCostEstimate.toString() }));
+    }
+  }, [formAnalysis, form.repairCost]);
 
   function submitForm() {
     saveFlip({ deviceType: form.deviceType, model: form.model, fault: form.fault, buyPrice: parseFloat(form.buyPrice) || 0, repairCost: parseFloat(form.repairCost) || 0, status: form.status, notes: form.notes });
@@ -129,27 +145,122 @@ export default function TrackerPage() {
 
       {/* Add form */}
       {showForm && (
-        <div className="bg-gray-900 border border-green-500/30 rounded-xl p-5 space-y-4">
-          <div className="text-sm font-semibold text-white">Log a New Flip</div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Device Type" value={form.deviceType} onChange={v => setForm(p => ({ ...p, deviceType: v }))} placeholder="e.g. Nintendo Switch" />
-            <FormField label="Model" value={form.model} onChange={v => setForm(p => ({ ...p, model: v }))} placeholder="e.g. OLED" />
-            <FormField label="Fault" value={form.fault} onChange={v => setForm(p => ({ ...p, fault: v }))} placeholder="e.g. stick drift" span />
-            <FormField label="Buy Price (£)" value={form.buyPrice} onChange={v => setForm(p => ({ ...p, buyPrice: v }))} placeholder="0" type="number" />
-            <FormField label="Est. Repair Cost (£)" value={form.repairCost} onChange={v => setForm(p => ({ ...p, repairCost: v }))} placeholder="0" type="number" />
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">Status</label>
-              <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value as FlipStatus }))}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
-                {statuses.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+        <div className={`grid gap-4 ${formAnalysis ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"}`}>
+          {/* Fields */}
+          <div className="bg-gray-900 border border-green-500/30 rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-semibold text-white">Log a New Flip</div>
+              <div className="flex items-center gap-1 text-xs text-green-400 ml-auto">
+                <Zap size={11} /> Live estimate
+              </div>
             </div>
-            <FormField label="Notes" value={form.notes} onChange={v => setForm(p => ({ ...p, notes: v }))} placeholder="Any notes..." span />
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Device Type" value={form.deviceType} onChange={v => setForm(p => ({ ...p, deviceType: v, repairCost: "" }))} placeholder="e.g. Nintendo Switch" />
+              <FormField label="Model" value={form.model} onChange={v => setForm(p => ({ ...p, model: v }))} placeholder="e.g. OLED" />
+              <FormField label="Fault" value={form.fault} onChange={v => setForm(p => ({ ...p, fault: v, repairCost: "" }))} placeholder="e.g. stick drift" span />
+              <FormField label="Buy Price (£)" value={form.buyPrice} onChange={v => setForm(p => ({ ...p, buyPrice: v }))} placeholder="0" type="number" />
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Repair Cost (£)
+                  {formAnalysis && !form.repairCost && (
+                    <span className="text-green-400 ml-1">(auto-filled)</span>
+                  )}
+                </label>
+                <input type="number" placeholder={formAnalysis ? formAnalysis.repairCostEstimate.toString() : "0"}
+                  value={form.repairCost} onChange={e => setForm(p => ({ ...p, repairCost: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-green-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Status</label>
+                <select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value as FlipStatus }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-green-500">
+                  {statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <FormField label="Notes" value={form.notes} onChange={v => setForm(p => ({ ...p, notes: v }))} placeholder="Any notes..." span />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={submitForm} disabled={!form.deviceType || !form.buyPrice}
+                className="px-4 py-2 bg-green-500 text-black rounded-lg text-sm font-medium hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed">
+                Save Flip
+              </button>
+              <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg text-sm hover:bg-gray-600">Cancel</button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button onClick={submitForm} className="px-4 py-2 bg-green-500 text-black rounded-lg text-sm font-medium hover:bg-green-400">Save</button>
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg text-sm hover:bg-gray-600">Cancel</button>
-          </div>
+
+          {/* Live analysis preview */}
+          {formAnalysis && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+              <div className="text-xs font-medium text-gray-400">Deal Preview</div>
+
+              {/* Action badge + score */}
+              <div className="flex items-center justify-between">
+                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${
+                  formAnalysis.recommendedAction === "BUY" ? "bg-green-500 text-black" :
+                  formAnalysis.recommendedAction === "NEGOTIATE" ? "bg-yellow-500 text-black" :
+                  formAnalysis.recommendedAction === "AVOID" ? "bg-red-500 text-white" : "bg-blue-500 text-white"
+                }`}>
+                  {formAnalysis.recommendedAction}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="flex gap-0.5">
+                    {Array.from({ length: 10 }).map((_, i) => (
+                      <div key={i} className={`w-3.5 h-1.5 rounded-sm ${i < formAnalysis.flipScore
+                        ? formAnalysis.flipScore >= 7 ? "bg-green-500" : formAnalysis.flipScore >= 5 ? "bg-yellow-500" : "bg-red-500"
+                        : "bg-gray-700"}`} />
+                    ))}
+                  </div>
+                  <span className="text-xs text-white font-bold">{formAnalysis.flipScore}/10</span>
+                </div>
+              </div>
+
+              {/* Numbers */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-gray-800 rounded-lg p-2.5">
+                  <div className="text-xs text-gray-400">Est. Repair</div>
+                  <div className="text-sm font-bold text-white">£{formAnalysis.repairCostMin}–{formAnalysis.repairCostMax}</div>
+                </div>
+                <div className="bg-gray-800 rounded-lg p-2.5">
+                  <div className="text-xs text-gray-400">Best Sell</div>
+                  <div className="text-sm font-bold text-white">£{formAnalysis.bestSellPrice} <span className="text-xs text-gray-400">({formAnalysis.bestPlatform.split(" ")[0]})</span></div>
+                </div>
+                <div className={`bg-gray-800 rounded-lg p-2.5 col-span-2`}>
+                  <div className="text-xs text-gray-400">Profit After Fees</div>
+                  <div className={`text-base font-bold ${formAnalysis.profitAfterFees >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {formAnalysis.profitAfterFees >= 0 ? "+" : ""}£{formAnalysis.profitAfterFees}
+                    <span className="text-xs text-gray-400 ml-2">{formAnalysis.roiAfterFees}% ROI</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Risk + difficulty */}
+              <div className="flex gap-2 text-xs">
+                <span className={`px-2 py-0.5 rounded capitalize ${
+                  formAnalysis.risk === "low" ? "bg-green-500/10 text-green-400" :
+                  formAnalysis.risk === "medium" ? "bg-yellow-500/10 text-yellow-400" :
+                  formAnalysis.risk === "high" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400"
+                }`}>{formAnalysis.risk} risk</span>
+                <span className={`px-2 py-0.5 rounded capitalize ${
+                  formAnalysis.difficulty === "beginner" ? "bg-green-500/10 text-green-400" :
+                  formAnalysis.difficulty === "intermediate" ? "bg-yellow-500/10 text-yellow-400" :
+                  formAnalysis.difficulty === "advanced" ? "bg-orange-500/10 text-orange-400" : "bg-red-500/10 text-red-400"
+                }`}>{formAnalysis.difficulty}</span>
+                <span className="text-gray-400 ml-auto">{formAnalysis.demand} demand</span>
+              </div>
+
+              {/* Repair note */}
+              <div className="text-xs text-gray-400 border-t border-gray-800 pt-3">{formAnalysis.repairNotes}</div>
+
+              {/* Scam flags */}
+              {formAnalysis.scamFlags.length > 0 && (
+                <div className="space-y-1">
+                  {formAnalysis.scamFlags.map((f, i) => (
+                    <div key={i} className="text-xs text-red-300 bg-red-500/10 rounded px-2 py-1">⚠ {f}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

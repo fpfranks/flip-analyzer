@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
-import { FlipAnalysis } from "@/lib/flipScorer";
-import { Search, Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle, Plus, ShieldAlert } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { FlipAnalysis, analyzeFlip } from "@/lib/flipScorer";
+import { Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle, Plus, ShieldAlert, Zap } from "lucide-react";
 import { saveFlip } from "@/lib/flipTracker";
 
 type Mode = "paste" | "manual";
@@ -28,107 +28,178 @@ const actionConfig = {
 };
 
 export default function AnalyzerPage() {
-  const [mode, setMode] = useState<Mode>("paste");
+  const [mode, setMode] = useState<Mode>("manual");
   const [listingText, setListingText] = useState("");
   const [manual, setManual] = useState({ deviceType: "", model: "", fault: "", buyPrice: "", accessories: "" });
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ analysis: FlipAnalysis; extracted: Record<string, string> } | null>(null);
+  const [pasteResult, setPasteResult] = useState<{ analysis: FlipAnalysis; extracted: Record<string, string> } | null>(null);
+  const [pasteLoading, setPasteLoading] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function analyze() {
-    setLoading(true);
+  // Manual mode: instant local analysis — no API, no button
+  const manualAnalysis = useMemo<FlipAnalysis | null>(() => {
+    if (!manual.deviceType.trim() || !manual.buyPrice) return null;
+    const price = parseFloat(manual.buyPrice);
+    if (!price || price <= 0) return null;
+    return analyzeFlip(manual.deviceType, manual.model, manual.fault || "untested", price, manual.accessories);
+  }, [manual]);
+
+  // Paste mode: auto-trigger 800ms after typing stops
+  useEffect(() => {
+    if (mode !== "paste") return;
+    if (listingText.trim().length < 25) { setPasteResult(null); return; }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => runPasteAnalysis(), 800);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingText, mode]);
+
+  async function runPasteAnalysis() {
+    setPasteLoading(true);
     setError("");
-    setResult(null);
     setSaved(false);
     try {
-      const body = mode === "paste"
-        ? { listingText }
-        : { manualInput: { ...manual, buyPrice: parseFloat(manual.buyPrice) || 0 } };
-      const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listingText }),
+      });
       const data = await res.json();
-      if (data.error) { setError(data.error); return; }
-      setResult(data);
+      if (data.error) { setError(data.error); setPasteResult(null); return; }
+      setPasteResult(data);
     } catch {
-      setError("Something went wrong. Check your API key is set in .env.local.");
+      setError("Could not analyze. Check your ANTHROPIC_API_KEY is set.");
     } finally {
-      setLoading(false);
+      setPasteLoading(false);
     }
   }
 
-  function addToTracker() {
-    if (!result) return;
-    const { analysis } = result;
+  function addToTracker(analysis: FlipAnalysis) {
     saveFlip({
       deviceType: analysis.deviceType,
       model: analysis.model,
       fault: analysis.faultDescription,
       buyPrice: analysis.buyPrice,
       repairCost: analysis.repairCostEstimate,
-      status: "watching",
+      status: "bought",
     });
     setSaved(true);
   }
 
+  const activeAnalysis = mode === "manual" ? manualAnalysis : pasteResult?.analysis ?? null;
+  const isReady = activeAnalysis !== null;
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Listing Analyzer</h1>
-        <p className="text-gray-400 text-sm mt-1">Paste a listing or fill in the details — get instant flip analysis with platform fees</p>
+    <div className="max-w-6xl mx-auto space-y-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Listing Analyzer</h1>
+          <p className="text-gray-400 text-sm mt-1">Results update live as you type</p>
+        </div>
+        <div className="flex gap-2">
+          {(["manual", "paste"] as Mode[]).map(m => (
+            <button key={m} onClick={() => { setMode(m); setSaved(false); setError(""); }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === m ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
+              {m === "manual" ? "Quick Entry" : "Paste Listing"}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="flex gap-2">
-        {(["paste", "manual"] as Mode[]).map(m => (
-          <button key={m} onClick={() => setMode(m)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${mode === m ? "bg-green-500 text-black" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
-            {m === "paste" ? "Paste Listing" : "Manual Entry"}
-          </button>
-        ))}
+      <div className={`grid gap-6 ${isReady ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1 max-w-2xl"}`}>
+        {/* ── Left: Input ── */}
+        <div className="space-y-4">
+          {mode === "manual" ? (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Zap size={14} className="text-green-400" />
+                <span className="text-xs text-green-400 font-medium">Live — updates as you type</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Device Type" placeholder="e.g. Nintendo Switch" value={manual.deviceType}
+                  onChange={v => { setManual(p => ({ ...p, deviceType: v })); setSaved(false); }} />
+                <Field label="Model" placeholder="e.g. Switch OLED" value={manual.model}
+                  onChange={v => setManual(p => ({ ...p, model: v }))} />
+                <Field label="Fault / Condition" placeholder="e.g. stick drift, cracked screen, no power"
+                  value={manual.fault} onChange={v => setManual(p => ({ ...p, fault: v }))} span />
+                <Field label="Buy Price (£)" placeholder="e.g. 80" value={manual.buyPrice} type="number"
+                  onChange={v => { setManual(p => ({ ...p, buyPrice: v })); setSaved(false); }} />
+                <Field label="Accessories (optional)" placeholder="e.g. box, dock, cables"
+                  value={manual.accessories} onChange={v => setManual(p => ({ ...p, accessories: v }))} />
+              </div>
+              {!manual.deviceType && (
+                <p className="text-xs text-gray-500">Start typing a device type to see your analysis appear →</p>
+              )}
+            </div>
+          ) : (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-gray-300 font-medium">Paste listing text</label>
+                {pasteLoading && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <Loader2 size={12} className="animate-spin" /> Analyzing...
+                  </div>
+                )}
+                {!pasteLoading && listingText.trim().length >= 25 && pasteResult && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-400">
+                    <CheckCircle2 size={12} /> Done
+                  </div>
+                )}
+              </div>
+              <textarea
+                value={listingText}
+                onChange={e => { setListingText(e.target.value); setSaved(false); setPasteResult(null); }}
+                placeholder={`Paste any listing here...\n\nExamples:\n• "Nintendo Switch OLED, left joy-con drift, £80 ono, Manchester"\n• "PS5 disc edition, overheating and shutting off, £150"\n• "iPhone 13, cracked screen, face id works, £120"`}
+                rows={9}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none"
+              />
+              <p className="text-xs text-gray-500">
+                Auto-analyzes 0.8s after you stop typing. Works with Facebook Marketplace, eBay, Gumtree, Vinted, Shpock.
+              </p>
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-xs flex items-start gap-2">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {error}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Extracted fields (paste mode) */}
+          {mode === "paste" && pasteResult && (
+            <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+              <div className="text-xs text-gray-400 font-medium mb-3">Extracted from listing</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {Object.entries(pasteResult.extracted).filter(([, v]) => v).map(([k, v]) => (
+                  <div key={k}>
+                    <span className="text-gray-500 capitalize">{k}: </span>
+                    <span className="text-white">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right: Live Results ── */}
+        {activeAnalysis && (
+          <div className="space-y-3">
+            <AnalysisResult
+              analysis={activeAnalysis}
+              onSave={() => addToTracker(activeAnalysis)}
+              saved={saved}
+            />
+          </div>
+        )}
       </div>
-
-      {mode === "paste" ? (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-4">
-          <label className="block text-sm text-gray-300 font-medium">Paste listing text</label>
-          <textarea
-            value={listingText}
-            onChange={e => setListingText(e.target.value)}
-            placeholder={`Example:\nNintendo Switch OLED for sale. Screen has crack on right side. Joy-cons included but left one has drift. Works fine otherwise. Asking £80 ono. Collection from Manchester.`}
-            rows={6}
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg p-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-green-500 resize-none"
-          />
-          <p className="text-xs text-gray-500">Paste from Facebook Marketplace, eBay, Gumtree, Vinted — AI extracts device, fault, and price automatically</p>
-        </div>
-      ) : (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 grid grid-cols-2 gap-4">
-          <Field label="Device Type" placeholder="e.g. Nintendo Switch" value={manual.deviceType} onChange={v => setManual(p => ({ ...p, deviceType: v }))} />
-          <Field label="Model" placeholder="e.g. Switch OLED" value={manual.model} onChange={v => setManual(p => ({ ...p, model: v }))} />
-          <Field label="Fault / Condition" placeholder="e.g. stick drift, cracked screen" value={manual.fault} onChange={v => setManual(p => ({ ...p, fault: v }))} span />
-          <Field label="Buy Price (£)" placeholder="e.g. 80" value={manual.buyPrice} onChange={v => setManual(p => ({ ...p, buyPrice: v }))} type="number" />
-          <Field label="Accessories" placeholder="e.g. box, dock, cables" value={manual.accessories} onChange={v => setManual(p => ({ ...p, accessories: v }))} />
-        </div>
-      )}
-
-      <button
-        onClick={analyze}
-        disabled={loading || (mode === "paste" ? !listingText.trim() : !manual.deviceType || !manual.buyPrice)}
-        className="flex items-center gap-2 px-6 py-3 bg-green-500 text-black rounded-lg font-medium text-sm hover:bg-green-400 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-        {loading ? "Analyzing..." : "Analyze Flip"}
-      </button>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 text-red-400 text-sm flex items-start gap-2">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {error}
-        </div>
-      )}
-
-      {result && <AnalysisResult result={result} onSave={addToTracker} saved={saved} />}
     </div>
   );
 }
 
-function Field({ label, placeholder, value, onChange, span, type }: { label: string; placeholder: string; value: string; onChange: (v: string) => void; span?: boolean; type?: string }) {
+function Field({ label, placeholder, value, onChange, span, type }: {
+  label: string; placeholder: string; value: string;
+  onChange: (v: string) => void; span?: boolean; type?: string;
+}) {
   return (
     <div className={span ? "col-span-2" : ""}>
       <label className="block text-xs text-gray-400 mb-1">{label}</label>
@@ -138,94 +209,91 @@ function Field({ label, placeholder, value, onChange, span, type }: { label: str
   );
 }
 
-function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAnalysis; extracted: Record<string, string> }; onSave: () => void; saved: boolean }) {
-  const { analysis } = result;
+function AnalysisResult({ analysis, onSave, saved }: { analysis: FlipAnalysis; onSave: () => void; saved: boolean }) {
   const ActionIcon = actionConfig[analysis.recommendedAction].icon;
 
   return (
-    <div className="space-y-4">
-      {/* Scam alerts — shown first if present */}
+    <>
+      {/* Scam alerts */}
       {analysis.scamFlags.length > 0 && (
-        <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-2">
+        <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 space-y-1.5">
           <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
-            <ShieldAlert size={16} /> Scam / Risk Alerts
+            <ShieldAlert size={15} /> Scam / Risk Alerts
           </div>
           {analysis.scamFlags.map((flag, i) => (
-            <div key={i} className="flex items-start gap-2 text-sm text-red-300">
-              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> {flag}
+            <div key={i} className="flex items-start gap-2 text-xs text-red-300">
+              <AlertTriangle size={11} className="mt-0.5 shrink-0" /> {flag}
             </div>
           ))}
         </div>
       )}
 
-      {/* Header */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <div className="flex items-start justify-between">
+      {/* Action + score */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
+        <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-lg font-bold text-white">{analysis.deviceType} {analysis.model}</div>
-            <div className="text-sm text-gray-400 mt-0.5">{analysis.faultDescription}</div>
+            <div className="font-bold text-white">{analysis.deviceType} {analysis.model}</div>
+            <div className="text-xs text-gray-400 mt-0.5">{analysis.faultDescription}</div>
           </div>
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${actionConfig[analysis.recommendedAction].color}`}>
-            <ActionIcon size={14} /> {analysis.recommendedAction}
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold shrink-0 ${actionConfig[analysis.recommendedAction].color}`}>
+            <ActionIcon size={13} /> {analysis.recommendedAction}
           </div>
         </div>
-        <div className="mt-4 flex items-center gap-3">
-          <div className="text-sm text-gray-400">Flip Score</div>
-          <div className="flex gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Score</span>
+          <div className="flex gap-0.5">
             {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className={`w-5 h-2 rounded-sm ${i < analysis.flipScore ? (analysis.flipScore >= 7 ? "bg-green-500" : analysis.flipScore >= 5 ? "bg-yellow-500" : "bg-red-500") : "bg-gray-700"}`} />
+              <div key={i} className={`w-4 h-1.5 rounded-sm ${i < analysis.flipScore
+                ? analysis.flipScore >= 7 ? "bg-green-500" : analysis.flipScore >= 5 ? "bg-yellow-500" : "bg-red-500"
+                : "bg-gray-700"}`} />
             ))}
           </div>
-          <div className="text-sm font-bold text-white">{analysis.flipScore}/10</div>
+          <span className="text-xs font-bold text-white">{analysis.flipScore}/10</span>
         </div>
       </div>
 
       {/* Key numbers */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <NumberCard label="Buy Price" value={`£${analysis.buyPrice}`} sub="asking price" />
-        <NumberCard label="Repair Cost" value={`£${analysis.repairCostMin}-${analysis.repairCostMax}`} sub={`~£${analysis.repairCostEstimate} est.`} />
-        <NumberCard label="Profit (after fees)" value={`£${analysis.profitAfterFees}`} sub={`${analysis.roiAfterFees}% ROI`} profit={analysis.profitAfterFees} />
-        <NumberCard label="Best Platform" value={analysis.bestPlatform.split(" ")[0]} sub={`£${analysis.bestSellPrice} sell price`} highlight />
+      <div className="grid grid-cols-2 gap-2">
+        <NumBox label="Buy Price" value={`£${analysis.buyPrice}`} sub="asking" />
+        <NumBox label="Est. Repair" value={`£${analysis.repairCostMin}–${analysis.repairCostMax}`} sub={`~£${analysis.repairCostEstimate}`} />
+        <NumBox label="Profit After Fees" value={`£${analysis.profitAfterFees}`} sub={`${analysis.roiAfterFees}% ROI`} profit={analysis.profitAfterFees} />
+        <NumBox label="Worst Case Loss" value={`£${analysis.worstCaseLoss}`} sub="total invested" warn />
       </div>
 
       {/* Platform breakdown */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5">
-        <h3 className="text-sm font-semibold text-white mb-3">Platform Breakdown (fees included)</h3>
-        <div className="space-y-2">
-          {analysis.platformBreakdown.map((p, i) => (
-            <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 ${i === 0 ? "bg-green-500/10 border border-green-500/20" : "bg-gray-800"}`}>
-              <div className="flex items-center gap-2">
-                {i === 0 && <span className="text-xs text-green-400 font-medium">BEST</span>}
-                <span className="text-sm text-white">{p.platform}</span>
-                {p.fee > 0 && <span className="text-xs text-gray-500">-£{p.fee} fee</span>}
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-xs text-gray-400">Sell: £{p.grossSell}</span>
-                <span className={`text-sm font-bold ${p.netProfit >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {p.netProfit >= 0 ? "+" : ""}£{p.netProfit}
-                </span>
-                <span className={`text-xs ${p.netRoi >= 0 ? "text-green-400" : "text-red-400"}`}>{p.netRoi}% ROI</span>
-              </div>
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-2">
+        <div className="text-xs font-medium text-gray-400 mb-1">By Platform (after fees)</div>
+        {analysis.platformBreakdown.map((p, i) => (
+          <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 ${i === 0 ? "bg-green-500/10 border border-green-500/20" : "bg-gray-800"}`}>
+            <div className="flex items-center gap-2">
+              {i === 0 && <span className="text-xs text-green-400 font-bold">★</span>}
+              <span className="text-xs text-white">{p.platform}</span>
+              {p.fee > 0 && <span className="text-xs text-gray-500">-£{p.fee}</span>}
             </div>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-xs text-gray-400">Demand:</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${analysis.demand === "very high" || analysis.demand === "high" ? "bg-green-500/20 text-green-400" : "bg-yellow-500/20 text-yellow-400"}`}>
-            {analysis.demand}
-          </span>
-        </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">£{p.grossSell}</span>
+              <span className={`text-sm font-bold ${p.netProfit >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {p.netProfit >= 0 ? "+" : ""}£{p.netProfit}
+              </span>
+              <span className={`text-xs w-14 text-right ${p.netRoi >= 0 ? "text-green-400" : "text-red-400"}`}>{p.netRoi}% ROI</span>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Risk & Difficulty */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-          <div className="text-xs text-gray-400 mb-2">Risk Level</div>
-          <span className={`text-sm font-medium px-2 py-1 rounded-lg capitalize ${riskColors[analysis.risk]}`}>{analysis.risk}</span>
+      {/* Risk / difficulty / demand row */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-3">
+          <div className="text-xs text-gray-500 mb-1">Risk</div>
+          <span className={`text-xs font-medium px-1.5 py-0.5 rounded capitalize ${riskColors[analysis.risk]}`}>{analysis.risk}</span>
         </div>
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
-          <div className="text-xs text-gray-400 mb-2">Repair Difficulty</div>
-          <span className={`text-sm font-medium px-2 py-1 rounded-lg capitalize ${difficultyColors[analysis.difficulty]}`}>{analysis.difficulty}</span>
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-3">
+          <div className="text-xs text-gray-500 mb-1">Difficulty</div>
+          <span className={`text-xs font-medium px-1.5 py-0.5 rounded capitalize ${difficultyColors[analysis.difficulty]}`}>{analysis.difficulty}</span>
+        </div>
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-3">
+          <div className="text-xs text-gray-500 mb-1">Demand</div>
+          <span className={`text-xs font-medium capitalize ${analysis.demand === "very high" || analysis.demand === "high" ? "text-green-400" : "text-yellow-400"}`}>{analysis.demand}</span>
         </div>
       </div>
 
@@ -233,43 +301,37 @@ function AnalysisResult({ result, onSave, saved }: { result: { analysis: FlipAna
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-4">
         <div className="text-xs text-gray-400 mb-1">Repair Notes</div>
         <div className="text-sm text-gray-200">{analysis.repairNotes}</div>
-        <div className="mt-2 text-xs text-gray-400">
-          Worst case total investment: <span className="text-orange-400 font-medium">£{analysis.worstCaseLoss}</span>
-        </div>
       </div>
 
-      {/* Info flags */}
+      {/* Flags */}
       {analysis.flags.length > 0 && (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 space-y-2">
-          <div className="text-xs text-gray-400 mb-1">Notes</div>
+        <div className="space-y-1">
           {analysis.flags.map((flag, i) => (
-            <div key={i} className="flex items-center gap-2 text-sm">
-              <AlertTriangle size={12} className="text-yellow-400 shrink-0" />
-              <span className="text-gray-200">{flag}</span>
+            <div key={i} className="flex items-center gap-2 text-xs text-gray-300 bg-gray-800 rounded-lg px-3 py-2">
+              <AlertTriangle size={11} className="text-yellow-400 shrink-0" /> {flag}
             </div>
           ))}
         </div>
       )}
 
-      <button
-        onClick={onSave}
-        disabled={saved}
-        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${saved ? "bg-gray-700 text-gray-400 cursor-default" : "bg-blue-500 text-white hover:bg-blue-400"}`}
-      >
-        <Plus size={14} />
+      {/* Add to tracker */}
+      <button onClick={onSave} disabled={saved}
+        className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${saved ? "bg-gray-700 text-gray-400 cursor-default" : "bg-green-500 text-black hover:bg-green-400"}`}>
+        <Plus size={15} />
         {saved ? "Added to Tracker" : "Add to Flip Tracker"}
       </button>
-    </div>
+    </>
   );
 }
 
-function NumberCard({ label, value, sub, highlight, profit }: { label: string; value: string; sub: string; highlight?: boolean; profit?: number }) {
-  const isProfit = profit !== undefined;
-  const profitColor = isProfit ? (profit >= 0 ? "text-green-400" : "text-red-400") : highlight ? "text-green-400" : "text-white";
+function NumBox({ label, value, sub, profit, warn }: { label: string; value: string; sub: string; profit?: number; warn?: boolean }) {
+  const color = profit !== undefined
+    ? profit >= 0 ? "text-green-400" : "text-red-400"
+    : warn ? "text-orange-400" : "text-white";
   return (
     <div className="bg-gray-800 rounded-lg p-3">
       <div className="text-xs text-gray-400 mb-1">{label}</div>
-      <div className={`text-lg font-bold ${profitColor}`}>{value}</div>
+      <div className={`text-base font-bold ${color}`}>{value}</div>
       <div className="text-xs text-gray-500 mt-0.5">{sub}</div>
     </div>
   );
